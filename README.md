@@ -1,0 +1,1 @@
+# teamcity-aws-ssm-plugin
