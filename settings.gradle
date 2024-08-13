@@ -1,0 +1,6 @@
+
+rootProject.name = 'teamcity-aws-ssm-plugin'
+include 'agent'
+
+includeBuild '../../..'
+

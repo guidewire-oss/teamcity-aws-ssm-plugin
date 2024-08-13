@@ -1,0 +1,69 @@
+plugins {
+  id 'org.gradle.java'
+  id 'io.github.rodm.teamcity-server' version '1.5.2'
+  id 'io.github.rodm.teamcity-environments' version '1.5.2'
+}
+
+group = 'com.guidewire.teamcity'
+version = '0.1.0'
+
+ext {
+  vendorName = 'Guidewire'
+  teamcityVersion = '2024.03'
+
+  downloadsDir = project.findProperty('downloads.dir') ?: "$rootDir/downloads"
+  serversDir = project.findProperty('servers.dir') ?: "$rootDir/servers"
+  java8Home = project.findProperty('java8.home') ?: '/opt/jdk1.8.0_92'
+  java11Home = project.findProperty('java11.home') ?: '/opt/jdk-11.0.2'
+}
+
+dependencies {
+  agent project(path: ':agent', configuration: 'plugin')
+}
+
+teamcity {
+  version = teamcityVersion
+
+  server {
+    descriptor {
+      name = project.name
+      displayName = 'TeamCity AWS SSM Parameter Retriever Plugin'
+      version = project.version
+      vendorName = project.vendorName
+
+      // optional properties
+      description = 'A TeamCity plugin for retrieving values from AWS SSM Parameter.'
+      downloadUrl = 'https://artifactory.guidewire.com/artifactory/devops-generic-test/teamcity-aws-ssm-plugin.zip'
+      email = 'dl-pod-vulcan@guidewire.com'
+      vendorUrl = 'https://www.guidewire.com/'
+
+      // deployment properties
+      useSeparateClassloader = true
+
+      archiveName = "${project.rootProject.name}.zip"
+    }
+  }
+
+  environments {
+    downloadsDir = project.downloadsDir
+    baseHomeDir = project.serversDir
+    baseDataDir = 'data'
+
+    'teamcity2020.1' {
+      version = '2020.1.5'
+      javaHome = file(java8Home)
+      serverOptions '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005'
+      agentOptions '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5006'
+    }
+
+    'teamcity2024.03' {
+      version = '2024.03'
+      javaHome = file(java8Home)
+      serverOptions '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005'
+      agentOptions '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5006'
+    }
+  }
+}
+
+// Do not include version into plugin archive name
+project.tasks.getByName('serverPlugin').version = '0.1.0'
