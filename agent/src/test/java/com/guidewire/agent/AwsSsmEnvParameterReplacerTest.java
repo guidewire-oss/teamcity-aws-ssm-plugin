@@ -17,8 +17,10 @@ import software.amazon.awssdk.services.ssm.SsmClient;
 import software.amazon.awssdk.services.ssm.model.GetParameterRequest;
 import software.amazon.awssdk.services.ssm.model.GetParameterResponse;
 import software.amazon.awssdk.services.ssm.model.Parameter;
+import software.amazon.awssdk.services.ssm.model.ParameterNotFoundException;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
@@ -121,6 +123,31 @@ public class AwsSsmEnvParameterReplacerTest {
         verify(passwordReplacer, times(1)).addPassword("value1");
         verify(passwordReplacer, times(1)).addPassword("value2");
         verify(passwordReplacer, times(1)).addPassword("value3");
+    }
+
+    @Test
+    public void testFetchSsmParameterValuesKeepsOtherValuesWhenOneParameterCannotBeFetched() {
+        when(ssmClient.getParameter(any(GetParameterRequest.class))).thenAnswer(invocation -> {
+            GetParameterRequest request = invocation.getArgument(0);
+            if (request.name().equals("sys.acme.missing")) {
+                throw ParameterNotFoundException.builder().message("Parameter sys.acme.missing not found.").build();
+            }
+            return GetParameterResponse.builder()
+                    .parameter(Parameter.builder().value("value-of-" + request.name()).build())
+                    .build();
+        });
+        Map<String, String> ssmParams = new LinkedHashMap<>();
+        ssmParams.put("env.FETCHED_BEFORE", "sys.acme.before");
+        ssmParams.put("env.MISSING", "sys.acme.missing");
+        ssmParams.put("fetched_after", "sys.acme.after");
+
+        Map<String, String> fetchedSsmValues = AwsSsmEnvParameterReplacer.fetchSsmParameterValues(ssmClient, ssmParams, buildProgressLogger);
+
+        Map<String, String> expectedFetchedSsmValues = new HashMap<>();
+        expectedFetchedSsmValues.put("env.FETCHED_BEFORE", "value-of-sys.acme.before");
+        expectedFetchedSsmValues.put("fetched_after", "value-of-sys.acme.after");
+        assertEquals(expectedFetchedSsmValues, fetchedSsmValues);
+        verify(buildProgressLogger, times(1)).warning(startsWith("AwsServiceException while fetching parameter env.MISSING, leaving it unresolved."));
     }
 
 

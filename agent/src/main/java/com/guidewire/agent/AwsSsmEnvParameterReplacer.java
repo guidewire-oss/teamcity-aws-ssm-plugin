@@ -72,22 +72,8 @@ public class AwsSsmEnvParameterReplacer extends AgentLifeCycleAdapter {
           .credentialsProvider(staticCredentialsProvider)
           .region(Region.of(awsRegion))
           .build()) {
-        // Iterate over each parameter and set the value from SSM
-        for (Map.Entry<String, String> kv : awsSsmParams.entrySet()) {
-          GetParameterRequest getParamReq = GetParameterRequest.builder()
-              .name(kv.getValue())
-              .withDecryption(true)
-              .build();
-
-          buildProgressLogger.message("Requesting ssm parameter value for " + kv.getKey());
-          GetParameterResponse getParamResp = ssmClient.getParameter(getParamReq);
-          buildProgressLogger.message("SSM request completed for " + kv.getKey());
-          String ssmValue = getParamResp.parameter().value();
-          kv.setValue(ssmValue);
-        }
+        replaceBuildParams(runningBuild, fetchSsmParameterValues(ssmClient, awsSsmParams, buildProgressLogger));
       }
-
-      replaceBuildParams(runningBuild, awsSsmParams);
     } catch (AwsServiceException e) {
       buildProgressLogger.message("AwsServiceException while fetching parameter." + e.getMessage());
     } catch (SdkClientException e) {
@@ -97,6 +83,38 @@ public class AwsSsmEnvParameterReplacer extends AgentLifeCycleAdapter {
     }
 
     buildProgressLogger.message("teamcity-aws-ssm-plugin finished");
+  }
+
+  /**
+   * Fetches each parameter's value from AWS Parameter Store on its own, so a parameter that cannot be
+   * fetched (missing, or not allowed for the AWS user) is reported as a warning and left unresolved
+   * without discarding the values of the other parameters.
+   *
+   * @param ssmClient Client used for the GetParameter requests.
+   * @param awsSsmParams TeamCity parameter names mapped to the AWS Parameter Store names to fetch.
+   * @param buildProgressLogger Logger to use for messages sent to the build log on server.
+   * @return The TeamCity parameter names mapped to the fetched values, only for the parameters fetched successfully.
+   */
+  protected static Map<String, String> fetchSsmParameterValues(SsmClient ssmClient, Map<String, String> awsSsmParams, BuildProgressLogger buildProgressLogger) {
+    Map<String, String> fetchedSsmValues = new HashMap<>();
+    for (Map.Entry<String, String> kv : awsSsmParams.entrySet()) {
+      GetParameterRequest getParamReq = GetParameterRequest.builder()
+          .name(kv.getValue())
+          .withDecryption(true)
+          .build();
+
+      buildProgressLogger.message("Requesting ssm parameter value for " + kv.getKey());
+      try {
+        GetParameterResponse getParamResp = ssmClient.getParameter(getParamReq);
+        fetchedSsmValues.put(kv.getKey(), getParamResp.parameter().value());
+        buildProgressLogger.message("SSM request completed for " + kv.getKey());
+      } catch (AwsServiceException e) {
+        buildProgressLogger.warning("AwsServiceException while fetching parameter " + kv.getKey() + ", leaving it unresolved. " + e.getMessage());
+      } catch (SdkClientException e) {
+        buildProgressLogger.warning("SdkClientException while fetching parameter " + kv.getKey() + ", leaving it unresolved. " + e.getMessage());
+      }
+    }
+    return fetchedSsmValues;
   }
 
   public static void replaceBuildParams(@NotNull AgentRunningBuild runningBuild, Map<String, String> awsSsmParams) {
